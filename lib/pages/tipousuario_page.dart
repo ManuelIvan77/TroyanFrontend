@@ -112,7 +112,7 @@ class _TipousuarioPageState extends State<TipousuarioPage> {
                       onPressed: () {
                         Navigator.push(
                           context,
-                          TransicionElegante(page: const Principal_user_Page()), // cambiar el const por Inicio_user_Page()),
+                          TransicionElegante(page: const Inicio_user_Page()), // cambiar el const por Inicio_user_Page()),
                         );
                       },
                       style: ElevatedButton.styleFrom(
@@ -139,7 +139,7 @@ class _TipousuarioPageState extends State<TipousuarioPage> {
                       onPressed: () {
                         Navigator.push(
                           context,
-                          TransicionElegante(page: const PrincipalPage()),  // cambiar el const por Inicio_Admin_Page()),
+                          TransicionElegante(page: const Inicio_Admin_Page()),  // cambiar el const por Inicio_Admin_Page()),
                         );
                       },
                       style: OutlinedButton.styleFrom(

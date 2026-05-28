@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:inventarioss/pages/miperfil_page.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 // =====================================================================
@@ -28,6 +29,21 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
   late final ValueNotifier<List<String>> _eventosDelDiaSeleccionado;
 
   final Color colorInstitucional = const Color(0xFF1A426E);
+
+  // =====================================================================
+  // DATOS SIMULADOS DEL INVENTARIO TOTAL (Solo nombres)
+  // =====================================================================
+  final List<String> _inventarioNombres = [
+    'Laptop Dell XPS',
+    'MacBook Air M2',
+    'Proyector Epson U50',
+    'Cámara Canon T7i',
+    'Trípode Manfrotto',
+    'Micrófono Shure SM58',
+    'Kit Iluminación LED',
+    'Cable HDMI 10m',
+    'Bocina Bluetooth JBL',
+  ];
 
   @override
   void initState() {
@@ -186,12 +202,13 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
   void _mostrarFormularioReservacion() {
     final formKey = GlobalKey<FormState>();
     
-    TextEditingController equipoController = TextEditingController();
+    // Se elimina equipoController
     TextEditingController motivoController = TextEditingController();
     
     TimeOfDay? horaInicio;
     TimeOfDay? horaEntrega;
     String? garantiaSeleccionada;
+    String? equipoSeleccionado; // <--- Variable para guardar la selección del inventario
     final DateTime horaRegistro = DateTime.now(); 
 
     String formatearHora(TimeOfDay? time) {
@@ -291,14 +308,27 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
                          ),
                       const SizedBox(height: 16),
 
-                      TextFormField(
-                        controller: equipoController,
+                      // =========================================================
+                      // CAMBIO A DESPLEGABLE (DROPDOWN) DEL INVENTARIO
+                      // =========================================================
+                      DropdownButtonFormField<String>(
+                        value: equipoSeleccionado,
                         decoration: InputDecoration(
                           labelText: 'Equipo Solicitado',
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                           prefixIcon: const Icon(Icons.devices),
                         ),
-                        validator: (value) => value!.isEmpty ? 'Requerido' : null,
+                        // Mapeo de la lista de nombres del inventario a DropdownMenuItems
+                        items: _inventarioNombres.map((String equipo) {
+                          return DropdownMenuItem<String>(
+                            value: equipo,
+                            child: Text(equipo, style: const TextStyle(fontSize: 14)),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          setModalState(() => equipoSeleccionado = val);
+                        },
+                        validator: (value) => value == null ? 'Por favor seleccione un equipo' : null,
                       ),
                       const SizedBox(height: 16),
 
@@ -339,8 +369,10 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
                         onPressed: () {
-                          if (formKey.currentState!.validate() && horaInicio != null && horaEntrega != null) {
-                            String nuevoEvento = '${formatearHora(horaInicio)} - ${formatearHora(horaEntrega)} | ${equipoController.text} (${garantiaSeleccionada})';
+                          // Se añade verificación de equipoSeleccionado != null en la lógica
+                          if (formKey.currentState!.validate() && horaInicio != null && horaEntrega != null && equipoSeleccionado != null) {
+                            // Se usa equipoSeleccionado en lugar de equipoController.text
+                            String nuevoEvento = '${formatearHora(horaInicio)} - ${formatearHora(horaEntrega)} | $equipoSeleccionado (${garantiaSeleccionada})';
                             final diaNormalizado = DateTime(_diaSeleccionado!.year, _diaSeleccionado!.month, _diaSeleccionado!.day);
                             
                             setState(() {
@@ -429,8 +461,18 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
                   title: Text('Página principal', style: TextStyle(color: colorInstitucional, fontWeight: FontWeight.bold)),
                   selected: true,
                   selectedTileColor: colorInstitucional.withOpacity(0.15),
-                  onTap: () => Navigator.pop(context), 
+                  onTap: () => Navigator.pop(context),   
                 ),
+                ListTile(
+                  leading: const Icon(Icons.settings),
+                  title: const Text('Mi Perfil'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.pushReplacement(context, TransicionElegante(page: const MiPerfilPage()));
+                    
+                  }, 
+                ),
+
                 const Divider(),
                 ListTile(
                   leading: const Icon(Icons.settings),
@@ -483,7 +525,7 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
                   );
 
                   // 3. Espera 3 segundos exactos
-                  await Future.delayed(const Duration(seconds: 3));
+                  await Future.delayed(const Duration(seconds: 2));
 
                   // 4. Aseguramos que la pantalla siga montada antes de cambiarla
                   if (!context.mounted) return;

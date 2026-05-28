@@ -62,7 +62,7 @@ class _AdministradoresPageState extends State<AdminsPage> {
   // =====================================================================
   // FUNCIÓN DE CIERRE DE SESIÓN (Confirmación + Carga + Redirección)
   // =====================================================================
-  Future<void> _cerrarSesion(BuildContext context) async {
+  Future<void> _ejecutarCerrarSesion(BuildContext context) async {
     // 1. Mostrar diálogo de confirmación antes de hacer cualquier cosa
     bool? confirmar = await showDialog<bool>(
       context: context,

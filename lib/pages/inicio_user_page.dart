@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:http/http.dart' as http; // Librería para peticiones de red
+import 'dart:convert'; // Librería para codificar en JSON
 import 'package:inventarioss/pages/principal_user_page.dart';
 import 'package:inventarioss/utils/transicion_elegante.dart'; 
-// Asegúrate de que esta ruta apunte a tu página principal
 
 class Inicio_user_Page extends StatefulWidget {
   const Inicio_user_Page({Key? key}) : super(key: key);
@@ -20,8 +22,8 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
   final TextEditingController _correoController = TextEditingController();
   final TextEditingController _contrasenaController = TextEditingController();
 
-  // Variable para guardar la ocupación seleccionada
-  String? _ocupacionSeleccionada;
+  // 🛠️ CORREGIDO: Forzamos que empiece en 0 (Estudiante) para evitar nulos por defecto
+  int? _ocupacionSeleccionada = 0;
 
   final Color navyBlue = const Color(0xFF0A3161);
   final Color elegantGray = const Color(0xFF6C757D);
@@ -44,34 +46,85 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
     super.dispose();
   }
 
-  void _handleLogin() {
+  // ==========================================
+  // LOGICA DE ENVÍO Y GENERACIÓN DE JSON 
+  // ==========================================
+  Future<void> _handleLogin() async {
     if (_formKey.currentState!.validate()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: const [
-              Icon(Icons.check_circle, color: Colors.white),
-              SizedBox(width: 12),
-              Text('Validación exitosa. Iniciando sesión...'),
-            ],
-          ),
-          backgroundColor: navyBlue,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          duration: const Duration(seconds: 1), 
-        ),
-      );
-      
-      Future.delayed(const Duration(seconds: 1), () {
-        // Redirigimos hacia la página principal (o a la vista que el usuario deba ver)
-        Navigator.pushReplacement(
-          context,
-          TransicionElegante(page: const Principal_user_Page()),
+      // 🛠️ RESPALDO SEGURO: Si por algún motivo volviera a quedar nulo, asegura un 0
+      int ocupacionId = _ocupacionSeleccionada ?? 0;
+
+      // IP Inteligente: Detecta si estás en Web (localhost) o Emulador (10.0.2.2)
+      final String baseUrl = kIsWeb ? 'localhost:3000' : '10.0.2.2:3000';
+      final url = Uri.parse('http://$baseUrl/api/solicitantes');
+
+      // Estructuración con la eñe en "contraseña" para que la reciba su backend de Node.js
+      final Map<String, dynamic> requestBody = {
+        "nombre": _nombreController.text.trim(),
+        "apellidos": _apellidoController.text.trim(),
+        "ocupacion": ocupacionId,
+        "expediente_clave": _claveController.text.trim(),
+        "correo": _correoController.text.trim(),
+        "contraseña": _contrasenaController.text.trim(),
+      };
+
+      try {
+        final response = await http.post(
+          url,
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode(requestBody),
         );
-      });
+
+        if (response.statusCode == 201 || response.statusCode == 200) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: const [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  SizedBox(width: 12),
+                  Text('Validación exitosa. Iniciando sesión...'),
+                ],
+              ),
+              backgroundColor: navyBlue,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              duration: const Duration(seconds: 1), 
+            ),
+          );
+          
+          Future.delayed(const Duration(seconds: 1), () {
+            Navigator.pushReplacement(
+              context,
+              TransicionElegante(page: const Principal_user_Page()),
+            );
+          });
+        } else {
+          final responseData = jsonDecode(response.body);
+          _mostrarErrorSnackBar(responseData['mensaje'] ?? 'Error en el servidor.');
+        }
+      } catch (e) {
+        _mostrarErrorSnackBar('No se pudo conectar con el servidor.');
+      }
     }
+  }
+
+  // Método auxiliar para mostrar alertas de error respetando la estética del SnackBar original
+  void _mostrarErrorSnackBar(String mensaje) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(child: Text(mensaje)),
+          ],
+        ),
+        backgroundColor: Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -168,7 +221,7 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
                             decoration: _buildInputDecoration('Nombre(s)', Icons.person_outline),
                             validator: (value) {
                               if (value == null || value.trim().isEmpty) {
-                                return 'Ingrese su nombre.';
+                                  return 'Ingrese su nombre.';
                               }
                               return null;
                             },
@@ -182,7 +235,7 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
                             decoration: _buildInputDecoration('Apellido(s)', Icons.person_outline),
                             validator: (value) {
                               if (value == null || value.trim().isEmpty) {
-                                return 'Ingrese su apellido.';
+                                  return 'Ingrese su apellido.';
                               }
                               return null;
                             },
@@ -192,44 +245,46 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Fila: Ocupación (Menú Desplegable) y Exp/Clave
+                    // 🛠️ FILA CORREGIDA: Ocupación (Menú Desplegable con balance de flex) y Exp/Clave
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Ocupación restringida a Estudiante o Docente
                         Expanded(
-                          child: DropdownButtonFormField<String>(
-                            isExpanded: true, // Evita overflow en pantallas pequeñas
+                          flex: 6, // Más peso horizontal para que no se recorten las letras en web responsivo
+                          child: DropdownButtonFormField<int>(
+                            isExpanded: true,
                             value: _ocupacionSeleccionada,
                             decoration: _buildInputDecoration('Ocupación', Icons.work_outline),
                             items: const [
-                              DropdownMenuItem(value: 'Estudiante', child: Text('Estudiante', overflow: TextOverflow.ellipsis)),
-                              DropdownMenuItem(value: 'Docente', child: Text('Docente', overflow: TextOverflow.ellipsis)),
+                              DropdownMenuItem(
+                                value: 0, 
+                                child: Text('Estudiante', style: TextStyle(fontSize: 13)),
+                              ),
+                              DropdownMenuItem(
+                                value: 1, 
+                                child: Text('Docente', style: TextStyle(fontSize: 13)),
+                              ),
                             ],
                             onChanged: (value) {
                               setState(() {
                                 _ocupacionSeleccionada = value;
                               });
                             },
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Seleccione una opción.';
-                              }
-                              return null;
-                            },
                           ),
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 12),
                         
-                        // Exp/Clave (Acepta texto alfanumérico por los docentes)
+                        // Exp/Clave
                         Expanded(
+                          flex: 5,
                           child: TextFormField(
                             controller: _claveController,
-                            keyboardType: TextInputType.text, // Modificado para aceptar D-XXXX
-                            maxLength: 8, // Ligeramente más largo para guiones
+                            keyboardType: TextInputType.text,
+                            maxLength: 8,
                             decoration: _buildInputDecoration('Exp/Clave', Icons.key_outlined).copyWith(counterText: ''),
                             validator: (value) {
                               if (value == null || value.trim().isEmpty) {
-                                return 'Ingrese su clave.';
+                                return 'Ingrese clave.';
                               }
                               return null;
                             },

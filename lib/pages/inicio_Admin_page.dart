@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:http/http.dart' as http; 
+import 'dart:convert'; 
 import 'package:inventarioss/utils/transicion_elegante.dart'; 
 import 'package:inventarioss/pages/principal_page.dart';
 
@@ -37,33 +40,87 @@ class _InicioAdminPageState extends State<Inicio_Admin_Page> {
     super.dispose();
   }
 
-  void _handleLogin() {
+  // ==========================================
+  // LÓGICA DE ENVÍO AL BACKEND
+  // ==========================================
+  Future<void> _handleLogin() async {
     if (_formKey.currentState!.validate()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: const [
-              Icon(Icons.check_circle, color: Colors.white),
-              SizedBox(width: 12),
-              Text('Validación exitosa. Iniciando sesión...'),
-            ],
-          ),
-          backgroundColor: navyBlue,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          duration: const Duration(seconds: 1), 
-        ),
-      );
+      // Si estás en navegador usa localhost, si es emulador Android usa la IP especial
+      final String baseUrl = kIsWeb ? 'localhost:3000' : '10.0.2.2:3000';
       
-      Future.delayed(const Duration(seconds: 1), () {
-        Navigator.pushReplacement(
-          context,
-          TransicionElegante(page: const PrincipalPage()),
+      // RUTA CORREGIDA: Apunta exactamente a tu endpoint de Express
+      final url = Uri.parse('http://$baseUrl/api/usuarios/registro'); 
+
+      // Cuerpo del JSON mapeado exactamente como lo pide tu destructuración en Node.js
+      final Map<String, dynamic> requestBody = {
+        "nombre": _nombreController.text.trim(),
+        "apellidos": _apellidoController.text.trim(),
+        "correo": _correoController.text.trim(),
+        "contrasena": _contrasenaController.text.trim(), // Sin eñe, tal cual tu backend
+        "tipo": 0,   // Operador por defecto
+        "status": 0, // Pendiente de aprobación por defecto
+      };
+
+      try {
+        final response = await http.post(
+          url,
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode(requestBody),
         );
-      });
+
+        final responseData = jsonDecode(response.body);
+
+        if (response.statusCode == 201 || response.statusCode == 200) {
+          // Registro exitoso
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.white),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text(responseData['mensaje'] ?? 'Registro exitoso.')),
+                ],
+              ),
+              backgroundColor: navyBlue,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              duration: const Duration(seconds: 3), 
+            ),
+          );
+          
+          // Redirección elegante después de mostrar el mensaje
+          Future.delayed(const Duration(seconds: 3), () {
+            Navigator.pushReplacement(
+              context,
+              TransicionElegante(page: const PrincipalPage()),
+            );
+          });
+        } else {
+          // El servidor respondió pero con un error controlado (ej. Correo duplicado)
+          _mostrarErrorSnackBar(responseData['mensaje'] ?? 'Error en el servidor.');
+        }
+      } catch (e) {
+        _mostrarErrorSnackBar('No se pudo conectar con el servidor. Verifica que Node.js esté corriendo.');
+      }
     }
+  }
+
+  void _mostrarErrorSnackBar(String mensaje) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(child: Text(mensaje)),
+          ],
+        ),
+        backgroundColor: Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
@@ -73,7 +130,7 @@ class _InicioAdminPageState extends State<Inicio_Admin_Page> {
       body: Column(
         children: [
           // ==========================================
-          // HEADER DINÁMICO
+          // HEADER CON LOGO
           // ==========================================
           Container(
             width: double.infinity,
@@ -121,7 +178,7 @@ class _InicioAdminPageState extends State<Inicio_Admin_Page> {
           ),
 
           // ==========================================
-          // CUERPO DEL FORMULARIO
+          // FORMULARIO DE REGISTRO
           // ==========================================
           Expanded(
             child: SingleChildScrollView(
@@ -150,6 +207,7 @@ class _InicioAdminPageState extends State<Inicio_Admin_Page> {
                     ),
                     const SizedBox(height: 40),
 
+                    // Fila de Nombre y Apellidos
                     Row(
                       children: [
                         Expanded(
@@ -183,7 +241,7 @@ class _InicioAdminPageState extends State<Inicio_Admin_Page> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Campo: Exp/Clave (Ahora abarca todo el ancho)
+                    // Campo Exp/Clave (Opcional para flujo visual del usuario)
                     TextFormField(
                       controller: _claveController,
                       keyboardType: TextInputType.number,
@@ -202,7 +260,7 @@ class _InicioAdminPageState extends State<Inicio_Admin_Page> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Campo: Correo Institucional
+                    // Correo Institucional
                     TextFormField(
                       controller: _correoController,
                       keyboardType: TextInputType.emailAddress,
@@ -220,7 +278,7 @@ class _InicioAdminPageState extends State<Inicio_Admin_Page> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Campo: Contraseña
+                    // Contraseña
                     TextFormField(
                       controller: _contrasenaController,
                       obscureText: true,
@@ -237,7 +295,7 @@ class _InicioAdminPageState extends State<Inicio_Admin_Page> {
                     ),
                     const SizedBox(height: 48),
 
-                    // Botón de Envío
+                    // Botón de Registrar
                     ElevatedButton(
                       onPressed: _handleLogin,
                       style: ElevatedButton.styleFrom(
@@ -267,9 +325,7 @@ class _InicioAdminPageState extends State<Inicio_Admin_Page> {
     );
   }
 
-  // ==========================================
-  // FUNCIÓN PARA EL ESTILO DE LOS CAMPOS
-  // ==========================================
+  // Estilo personalizado para los Inputs
   InputDecoration _buildInputDecoration(String labelText, IconData icon) {
     return InputDecoration(
       isDense: true, 

@@ -3,6 +3,8 @@ import 'package:flutter/services.dart'; // <--- NUEVO: Importación necesaria pa
 
 import 'package:inventarioss/pages/inicio_Admin_page.dart';
 import 'package:inventarioss/pages/inicio_user_page.dart';
+import 'package:inventarioss/pages/login_admin_page.dart';
+import 'package:inventarioss/pages/login_user_page.dart';
 import 'package:inventarioss/pages/principal_page.dart';
 import 'package:inventarioss/pages/principal_user_page.dart';
 //import 'package:inventarioss/pages/principal_page.dart';
@@ -112,7 +114,7 @@ class _TipousuarioPageState extends State<TipousuarioPage> {
                       onPressed: () {
                         Navigator.push(
                           context,
-                          TransicionElegante(page: const Inicio_user_Page()), // cambiar el const por Inicio_user_Page()),
+                          TransicionElegante(page: const LoginPage()), // cambiar el const por Inicio_user_Page()),
                         );
                       },
                       style: ElevatedButton.styleFrom(
@@ -139,7 +141,7 @@ class _TipousuarioPageState extends State<TipousuarioPage> {
                       onPressed: () {
                         Navigator.push(
                           context,
-                          TransicionElegante(page: const Inicio_Admin_Page()),  // cambiar el const por Inicio_Admin_Page()),
+                          TransicionElegante(page: const LoginAdminPage()),  // cambiar el const por Inicio_Admin_Page()),
                         );
                       },
                       style: OutlinedButton.styleFrom(

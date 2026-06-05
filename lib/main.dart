@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // <--- IMPORTACIÓN NECESARIA PARA BLOQUEAR ROTACIÓN
 
 import 'package:inventarioss/pages/admins_page.dart';
+import 'package:inventarioss/pages/espera_admins.dart';
 import 'package:inventarioss/pages/inicio_Admin_page.dart';
 import 'package:inventarioss/pages/inventario_page.dart';
+import 'package:inventarioss/pages/login_user_page.dart';
+import 'package:inventarioss/pages/login_admin_page.dart';
 import 'package:inventarioss/pages/principal_page.dart';
 import 'package:inventarioss/pages/solicitantes_page.dart';
 import 'package:inventarioss/pages/tipousuario_page.dart';
@@ -41,6 +44,9 @@ class MyApp extends StatelessWidget {
         'principal_page': (BuildContext context) => const PrincipalPage(),
         'solicitantes_page': (BuildContext context) => const SolicitantesPage(),
         'Admins_page': (BuildContext context) => const AdminsPage(),
+        'login_user_page': (BuildContext context) => const LoginPage(),
+        'login_admin_page': (BuildContext context) => const LoginAdminPage(),
+        'espera_admins': (BuildContext context) => const AdminEsperaPage(),
       },
     );
   }

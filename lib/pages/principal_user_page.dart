@@ -11,7 +11,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 // =====================================================================
 import 'package:inventarioss/utils/transicion_elegante.dart';
 import 'package:inventarioss/pages/tipousuario_page.dart'; 
-// Asegúrate de que esta importación apunte a donde Jean guardó el archivo de configuración base de la API
 import 'package:inventarioss/api_config.dart'; 
 
 class Principal_user_Page extends StatefulWidget {
@@ -30,25 +29,18 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
   DateTime _diaEnfocado = DateTime.now();
   DateTime? _diaSeleccionado;
 
-  late Map<DateTime, List<String>> _eventos;
-  late final ValueNotifier<List<String>> _eventosDelDiaSeleccionado;
+  // ===> CORRECCIÓN DE TIPO: Cambiado a List<dynamic> para integrarse sin romper con TableCalendar <===
+  late Map<DateTime, List<dynamic>> _eventos;
+  late final ValueNotifier<List<dynamic>> _eventosDelDiaSeleccionado;
+  bool _cargandoSolicitudes = false;
 
   final Color colorInstitucional = const Color(0xFF1A426E);
-
-  // ===> VARIABLE GLOBAL PARA EL ID DEL SOLICITANTE <===
   int _idUsuario = 0;
 
-  // Inventario local para diseño de interfaz
   final List<String> _inventarioNombres = [
-    'Laptop Dell XPS',
-    'MacBook Air M2',
-    'Proyector Epson U50',
-    'Cámara Canon T7i',
-    'Trípode Manfrotto',
-    'Micrófono Shure SM58',
-    'Kit Iluminación LED',
-    'Cable HDMI 10m',
-    'Bocina Bluetooth JBL',
+    'Laptop Dell XPS', 'MacBook Air M2', 'Proyector Epson U50',
+    'Cámara Canon T7i', 'Trípode Manfrotto', 'Micrófono Shure SM58',
+    'Kit Iluminación LED', 'Cable HDMI 10m', 'Bocina Bluetooth JBL',
   ];
 
   @override
@@ -59,35 +51,24 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
       DeviceOrientation.portraitUp,
     ]);
 
-    // Carga síncrona del ID guardado por el Login o Registro
-    _cargarDatosUsuario();
+    _diaSeleccionado = _diaEnfocado;
+    _eventos = {};
+    _eventosDelDiaSeleccionado = ValueNotifier([]);
+
+    // Disparamos la carga de datos secuencial
+    _inicializarDatos();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_tutorialMostrado) {
         _mostrarTutorialNavegacion();
       }
     });
+  }
 
-    _diaSeleccionado = _diaEnfocado;
-    
-    final hoy = DateTime.now();
-    final hoyNormalizado = DateTime(hoy.year, hoy.month, hoy.day);
-    final manana = hoyNormalizado.add(const Duration(days: 1));
-    final proximaSemana = hoyNormalizado.add(const Duration(days: 7));
-
-    _eventos = {
-      hoyNormalizado: [
-        '10:00 - 12:00 | Revisión de inventario en Bodega',
-      ],
-      manana: [
-        '09:00 - 11:00 | Préstamo de proyector',
-      ],
-      proximaSemana: [
-        '16:00 - 18:00 | Práctica en Caballo de Troya',
-      ],
-    };
-
-    _eventosDelDiaSeleccionado = ValueNotifier(_obtenerEventosParaDia(_diaSeleccionado!));
+  // Encargado de orquestar la carga de preferencias y de inmediato traer datos de la red
+  Future<void> _inicializarDatos() async {
+    await _cargarDatosUsuario();
+    await _obtenerSolicitudesBackend();
   }
 
   // Recupera el ID desde memoria SharedPreferences
@@ -101,13 +82,58 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
     print('------------------------------------------------------------');
   }
 
-  @override
-  void dispose() {
-    _eventosDelDiaSeleccionado.dispose();
-    super.dispose();
+  // =====================================================================
+  // METODO NUEVO: GET CONEXIÓN REAL CON BACKEND EN AZURE
+  // =====================================================================
+  Future<void> _obtenerSolicitudesBackend() async {
+    setState(() => _cargandoSolicitudes = true);
+    try {
+      final url = Uri.parse('${ApiConfig.baseUrl}/api/solicitudes');
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> respuestaJson = jsonDecode(response.body);
+        if (respuestaJson['error'] == false) {
+          final List<dynamic> listaSolicitudes = respuestaJson['datos'];
+
+          // ===> CORRECCIÓN: Mapeo temporal compatible con la respuesta dynamic de la API <===
+          Map<DateTime, List<dynamic>> nuevoMapaEventos = {};
+
+          for (var item in listaSolicitudes) {
+            if (item['hora_fecha_inicio_solicitada'] != null) {
+              // Parseamos el string ISO UTC (ej: 2026-06-05T09:00:00.000Z)
+              DateTime fechaCompleta = DateTime.parse(item['hora_fecha_inicio_solicitada']).toLocal();
+              // Normalizamos quitando horas para agruparlo exactamente en su celda del calendario
+              DateTime fechaCelda = DateTime(fechaCompleta.year, fechaCompleta.month, fechaCompleta.day);
+
+              if (nuevoMapaEventos[fechaCelda] == null) {
+                nuevoMapaEventos[fechaCelda] = [];
+              }
+              nuevoMapaEventos[fechaCelda]!.add(item);
+            }
+          }
+
+          setState(() {
+            _eventos = nuevoMapaEventos;
+          });
+          // Forzamos actualización de la lista inferior de actividades basándonos en el día actual
+          _actualizarEventosDelDia(_diaSeleccionado!);
+        }
+      }
+    } catch (e) {
+      print("❌ Error cargando solicitudes de la base de datos: $e");
+    } finally {
+      setState(() => _cargandoSolicitudes = false);
+    }
   }
 
-  List<String> _obtenerEventosParaDia(DateTime dia) {
+  void _actualizarEventosDelDia(DateTime dia) {
+    final diaNormalizado = DateTime(dia.year, dia.month, dia.day);
+    _eventosDelDiaSeleccionado.value = _eventos[diaNormalizado] ?? [];
+  }
+
+  // Mapeador estricto para TableCalendar
+  List<dynamic> _obtenerEventosParaDia(DateTime dia) {
     final diaNormalizado = DateTime(dia.year, dia.month, dia.day);
     return _eventos[diaNormalizado] ?? [];
   }
@@ -118,7 +144,50 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
         _diaSeleccionado = diaSeleccionado;
         _diaEnfocado = diaEnfocado;
       });
-      _eventosDelDiaSeleccionado.value = _obtenerEventosParaDia(diaSeleccionado);
+      _actualizarEventosDelDia(diaSeleccionado);
+    }
+  }
+
+  // =====================================================================
+  // HELPERS DE DISEÑO PARA ESTADOS (0, 1, 2, 3)
+  // =====================================================================
+  Color _obtenerColorEstado(int estatus) {
+    switch (estatus) {
+      case 1:  return const Color(0xFF0A3161); // Navy Aprobada
+      case 2:  return Colors.redAccent;        // Rojo Rechazada
+      case 3:  return Colors.teal;             // Verde azulado Devuelta/Finalizada
+      case 0:
+      default: return Colors.orangeAccent;     // Naranja Espera
+    }
+  }
+
+  String _obtenerTextoEstado(int estatus) {
+    switch (estatus) {
+      case 1:  return 'APROBADA';
+      case 2:  return 'RECHAZADA';
+      case 3:  return 'FINALIZADA';
+      case 0:
+      default: return 'EN ESPERA';
+    }
+  }
+
+  IconData _obtenerIconoEstado(int estatus) {
+    switch (estatus) {
+      case 1:  return Icons.check_circle_outline_rounded;
+      case 2:  return Icons.cancel_outlined;
+      case 3:  return Icons.assignment_turned_in_outlined;
+      case 0:
+      default: return Icons.hourglass_empty_rounded;
+    }
+  }
+
+  String _extraerHoraDeString(String? fechaIso) {
+    if (fechaIso == null) return "00:00";
+    try {
+      DateTime dt = DateTime.parse(fechaIso).toLocal();
+      return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+    } catch (_) {
+      return "00:00";
     }
   }
 
@@ -227,7 +296,7 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
                       DropdownButtonFormField<String>(
                         value: equipoSeleccionado,
                         decoration: InputDecoration(
-                          labelText: 'Equipo Solicitado (Solo Vista)',
+                          labelText: 'Equipo Solicitado',
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                           prefixIcon: const Icon(Icons.devices),
                         ),
@@ -273,9 +342,6 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
                       ),
                       const SizedBox(height: 24),
 
-                      // ================================================================
-                      // ACCIÓN PRINCIPAL DE DISPARO HTTP POST
-                      // ================================================================
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: colorInstitucional,
@@ -307,31 +373,27 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
                             final String horaInicioStr = formatearHora(horaInicio);
                             final String horaEntregaStr = formatearHora(horaEntrega);
                             
-                            // Conversión a estampa YYYY-MM-DD HH:MM:SS
                             final String fechaBase = "${_diaSeleccionado!.year}-${_diaSeleccionado!.month.toString().padLeft(2, '0')}-${_diaSeleccionado!.day.toString().padLeft(2, '0')}";
                             final String horaFechaInicio = "$fechaBase $horaInicioStr:00";
                             final String horaFechaFin = "$fechaBase $horaEntregaStr:00";
 
-                            // ===> GENERACIÓN EXCLUSIVA DE DATOS PARA TU REQ.BODY <===
+                            // ===> CORRECCIÓN: 'notes' cambiado por 'notas' para emparejar con tu Base de Datos de Azure <===
                             final Map<String, dynamic> datosSolicitud = {
                               "id_solicitante": _idUsuario,
+                              "Motivo": motivoController.text,
                               "motivo": motivoController.text,
                               "hora_fecha_inicio_solicitada": horaFechaInicio,
                               "hora_fecha_conclusion_solicitada": horaFechaFin,
                               "garantia": garantiaSeleccionada,
-                              "notes": null 
+                              "notas": equipoSeleccionado 
                             };
 
-                            // INSPECTOR VISUAL REQUERIDO EN CONSOLA
                             print("------------------------------------------------------------");
                             print("🚀 JSON ENVIADO AL BACKEND:");
                             print(jsonEncode(datosSolicitud));
                             print("------------------------------------------------------------");
 
                             try {
-                              // ================================================================
-                              // NUEVA RUTA INTEGRADA CON APICONFIG (REEMPLAZA LOCALHOST)
-                              // ================================================================
                               final url = Uri.parse('${ApiConfig.baseUrl}/api/solicitudes');
                               
                               final response = await http.post(
@@ -340,41 +402,27 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
                                 body: jsonEncode(datosSolicitud),
                               );
 
-                              if (context.mounted) Navigator.pop(context); // Cierra loading
+                              if (!context.mounted) return;
+                              Navigator.pop(context); // Cierra loading dialog de forma segura
 
                               if (response.statusCode == 201 || response.statusCode == 200) {
-                                String nuevoEvento = '$horaInicioStr - $horaEntregaStr | $equipoSeleccionado ($garantiaSeleccionada)';
-                                final diaNormalizado = DateTime(_diaSeleccionado!.year, _diaSeleccionado!.month, _diaSeleccionado!.day);
-                                
-                                setState(() {
-                                  if (_eventos[diaNormalizado] != null) {
-                                    _eventos[diaNormalizado]!.add(nuevoEvento);
-                                  } else {
-                                    _eventos[diaNormalizado] = [nuevoEvento];
-                                  }
-                                  _eventosDelDiaSeleccionado.value = List.from(_eventos[diaNormalizado]!);
-                                });
-                                
-                                if (context.mounted) {
-                                  Navigator.pop(context); // Cierra modal inferior
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('¡Solicitud creada correctamente!'), backgroundColor: Colors.green),
-                                  );
-                                }
-                              } else {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Error del servidor (${response.statusCode}): ${response.body}'), backgroundColor: Colors.red),
-                                  );
-                                }
-                              }
-                            } catch (e) {
-                              if (context.mounted) {
-                                Navigator.pop(context);
+                                Navigator.pop(context); // Cierra modal de forma segura
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Error de red: No se pudo conectar al servidor ($e)'), backgroundColor: Colors.red),
+                                  const SnackBar(content: Text('¡Solicitud creada correctamente!'), backgroundColor: Colors.green),
+                                );
+                                // Refresca de inmediato el calendario y el feed inferior
+                                _obtenerSolicitudesBackend();
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Error del servidor (${response.statusCode}): ${response.body}'), backgroundColor: Colors.red),
                                 );
                               }
+                            } catch (e) {
+                              if (!context.mounted) return;
+                              Navigator.pop(context); // Cierra loading
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Error de red: No se pudo conectar al servidor ($e)'), backgroundColor: Colors.red),
+                              );
                             }
                           }
                         },
@@ -413,10 +461,10 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
               ),
             ],
           ),
-          content: Column(
+          content: const Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('El menú lateral contiene tus accesos directos de perfil y cierre de sesión seguro.', textAlign: TextAlign.center),
+              Text('El menú lateral contiene tus accesos directos de perfil y cierre de sesión seguro.', textAlign: TextAlign.center),
             ],
           ),
           actionsAlignment: MainAxisAlignment.center,
@@ -470,13 +518,13 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
               children: [
                 DrawerHeader(
                   decoration: BoxDecoration(color: colorInstitucional),
-                  child: Center(
+                  child: const Center(
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.account_circle, color: Colors.white, size: 50),
-                        const SizedBox(width: 15),
-                        const Text('Menú Usuario', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                        Icon(Icons.account_circle, color: Colors.white, size: 50),
+                        SizedBox(width: 15),
+                        Text('Menú Usuario', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                       ],
                     ),
                   ),
@@ -527,7 +575,7 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
               color: Colors.white,
               borderRadius: BorderRadius.only(bottomLeft: Radius.circular(20), bottomRight: Radius.circular(20)),
             ),
-            child: TableCalendar<String>(
+            child: TableCalendar(
               firstDay: DateTime.utc(2020, 1, 1),
               lastDay: DateTime.utc(2030, 12, 31),
               focusedDay: _diaEnfocado,
@@ -546,30 +594,79 @@ class _PrincipalUserPageState extends State<Principal_user_Page> {
             ),
           ),
           const SizedBox(height: 20),
+          
+          // ===> LISTADO DINÁMICO COMPLETAMENTE ASOCIADO CON TU BASE DE DATOS <===
           Expanded(
-            child: ValueListenableBuilder<List<String>>(
-              valueListenable: _eventosDelDiaSeleccionado,
-              builder: (context, eventosLista, _) {
-                if (eventosLista.isEmpty) {
-                  return Center(
-                    child: Text('No hay actividades programadas', style: TextStyle(color: Colors.grey.shade600, fontSize: 16)),
-                  );
-                }
-                return ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                  itemCount: eventosLista.length,
-                  itemBuilder: (context, index) {
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 12.0),
-                      child: ListTile(
-                        leading: Icon(Icons.task_alt, color: colorInstitucional),
-                        title: Text(eventosLista[index], style: const TextStyle(fontWeight: FontWeight.w600)),
+            child: _cargandoSolicitudes 
+              ? Center(child: CircularProgressIndicator(color: colorInstitucional))
+              : ValueListenableBuilder<List<dynamic>>(
+                  valueListenable: _eventosDelDiaSeleccionado,
+                  builder: (context, solicitudesLista, _) {
+                    if (solicitudesLista.isEmpty) {
+                      return Center(
+                        child: Text('No hay actividades programadas', style: TextStyle(color: Colors.grey.shade600, fontSize: 16)),
+                      );
+                    }
+                    return RefreshIndicator(
+                      color: colorInstitucional,
+                      onRefresh: _obtenerSolicitudesBackend,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                        itemCount: solicitudesLista.length,
+                        itemBuilder: (context, index) {
+                          final solicitud = solicitudesLista[index];
+                          
+                          // Mapeo estricto del JSON de tu Backend
+                          final String motivo = solicitud['Motivo'] ?? 'Sin motivo especificado';
+                          final int estatus = solicitud['estatus'] ?? 0;
+                          final String horaIni = _extraerHoraDeString(solicitud['hora_fecha_inicio_solicitada']);
+                          final String horaFin = _extraerHoraDeString(solicitud['hora_fecha_conclusion_solicitada']);
+                          final String garantia = solicitud['garantia'] ?? 'Ninguna';
+
+                          final colorEstado = _obtenerColorEstado(estatus);
+
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 12.0),
+                            decoration: BoxDecoration(
+                              color: colorEstado.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: colorEstado.withOpacity(0.3), width: 1.5),
+                            ),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              leading: CircleAvatar(
+                                backgroundColor: colorEstado,
+                                child: Icon(_obtenerIconoEstado(estatus), color: Colors.white, size: 20),
+                              ),
+                              title: Text(
+                                '$horaIni - $horaFin | E: $garantia',
+                                style: TextStyle(fontWeight: FontWeight.bold, color: colorInstitucional, fontSize: 14),
+                              ),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 4.0),
+                                child: Text(
+                                  'Motivo: $motivo',
+                                  style: TextStyle(color: Colors.grey.shade800, fontSize: 13),
+                                ),
+                              ),
+                              trailing: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: colorEstado,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  _obtenerTextoEstado(estatus),
+                                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     );
                   },
-                );
-              },
-            ),
+                ),
           ),
         ],
       ),

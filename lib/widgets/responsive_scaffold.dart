@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:inventarioss/pages/lugares_pages.dart';
 
 // =====================================================================
 // IMPORTACIONES DE TODAS TUS PÁGINAS
 // =====================================================================
+import 'package:inventarioss/pages/lugares_pages.dart';
 import 'package:inventarioss/pages/principal_page.dart';
 import 'package:inventarioss/pages/inventario_page.dart';
 import 'package:inventarioss/pages/solicitantes_page.dart';
 import 'package:inventarioss/pages/admins_page.dart'; 
-import 'package:inventarioss/pages/tipousuario_page.dart'; // <--- IMPORTACIÓN CLAVE PARA EL LOGIN
+import 'package:inventarioss/pages/miperfil_page.dart'; // <--- IMPORTACIÓN DE MI PERFIL
+import 'package:inventarioss/pages/tipousuario_page.dart'; 
 import 'package:inventarioss/utils/transicion_elegante.dart';
 
 class ResponsiveScaffold extends StatefulWidget {
@@ -28,14 +29,16 @@ class ResponsiveScaffold extends StatefulWidget {
 }
 
 class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
+  // Llave maestra para controlar el Scaffold y el Drawer de forma segura
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  
   final Color colorInstitucional = const Color(0xFF1A426E);
-  String _opcionDesplegableSeleccionada = 'Configuración General';
 
   // =================================================================
-  // LÓGICA DE CIERRE DE SESIÓN GLOBAL (3 SEGUNDOS DE ESPERA)
+  // LÓGICA DE CIERRE DE SESIÓN GLOBAL (Segura para Móvil y PC)
   // =================================================================
   Future<void> _ejecutarCerrarSesion(BuildContext context) async {
-    // 1. Mostrar diálogo de confirmación de seguridad
+    // 1. Mostrar diálogo de confirmación
     bool? confirmar = await showDialog<bool>(
       context: context,
       builder: (BuildContext context) {
@@ -51,7 +54,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
           content: const Text('¿Estás seguro de que deseas salir de tu cuenta?'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false), // Retorna falso
+              onPressed: () => Navigator.pop(context, false),
               child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
             ),
             ElevatedButton(
@@ -60,7 +63,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
-              onPressed: () => Navigator.pop(context, true), // Retorna verdadero
+              onPressed: () => Navigator.pop(context, true),
               child: const Text('Sí, salir'),
             ),
           ],
@@ -68,10 +71,14 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
       },
     );
 
-    // 2. Si cancela, no hacemos nada
     if (confirmar != true) return;
 
-    // 3. Lanzamos el indicador visual de procesamiento
+    // 2. Cerramos el Drawer SOLAMENTE si está abierto (evita errores en PC)
+    if (_scaffoldKey.currentState?.isEndDrawerOpen ?? false) {
+      _scaffoldKey.currentState?.closeEndDrawer();
+    }
+
+    // 3. Mostramos la ventana de carga
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -93,19 +100,19 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
       },
     );
 
-    // 4. Detener el flujo por 3 segundos exactos
+    // 4. Retraso de 3 segundos
     await Future.delayed(const Duration(seconds: 3));
 
-    // 5. Validar que el widget siga cargado en pantalla antes de navegar
     if (!context.mounted) return;
 
-    // Remueve el cuadro de carga
-    Navigator.pop(context);
+    // 5. Quitamos la carga usando el rootNavigator para mayor seguridad
+    Navigator.of(context, rootNavigator: true).pop();
 
-    // 6. Limpiar el árbol de pantallas y regresar al selector inicial
-    Navigator.pushReplacement(
+    // 6. Limpiamos TODA la pila de navegación y regresamos al Login
+    Navigator.pushAndRemoveUntil(
       context,
       TransicionElegante(page: const TipousuarioPage()),
+      (Route<dynamic> route) => false, // Borra el historial previo
     );
   }
 
@@ -113,12 +120,19 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
   // LÓGICA DE NAVEGACIÓN INTELIGENTE
   // =================================================================
   void _navegarA(BuildContext context, String destino, Widget pagina) {
+    // Si ya estamos en la página, solo cerramos el menú
     if (widget.paginaActual == destino) {
-      Navigator.of(context).pop();
+      if (_scaffoldKey.currentState?.isEndDrawerOpen ?? false) {
+        _scaffoldKey.currentState?.closeEndDrawer();
+      }
       return;
     }
     
-    Navigator.of(context).pop();
+    // Si vamos a otra página, cerramos el menú (si está abierto) y navegamos
+    if (_scaffoldKey.currentState?.isEndDrawerOpen ?? false) {
+      _scaffoldKey.currentState?.closeEndDrawer();
+    }
+    
     Navigator.pushReplacement(
       context,
       TransicionElegante(page: pagina),
@@ -156,7 +170,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                 ),
               ),
               
-              // 1. Página Principal (Calendario)
+              // 1. Página Principal
               ListTile(
                 leading: Icon(Icons.home, color: widget.paginaActual == 'Principal' ? colorInstitucional : Colors.grey),
                 title: Text(
@@ -171,7 +185,26 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                 onTap: () => _navegarA(context, 'Principal', const PrincipalPage()),
               ),
               
-              // 2. Solicitantes
+              const Divider(),
+
+              // 2. Mi Perfil
+              ListTile(
+                leading: const Icon(Icons.person, color: Colors.grey),
+                title: const Text('Mi Perfil', style: TextStyle(color: Colors.black)),
+                onTap: () {
+                  if (_scaffoldKey.currentState?.isEndDrawerOpen ?? false) {
+                    _scaffoldKey.currentState?.closeEndDrawer();
+                  }
+                  Navigator.push(
+                    context,
+                    TransicionElegante(page: const MiPerfilPage()),
+                  );
+                },
+              ),
+
+              const Divider(),
+              
+              // 3. Solicitantes
               ListTile(
                 leading: Icon(Icons.people, color: widget.paginaActual == 'Solicitantes' ? colorInstitucional : Colors.grey),
                 title: Text(
@@ -186,7 +219,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                 onTap: () => _navegarA(context, 'Solicitantes', const SolicitantesPage()),
               ),
               
-              // 3. Administradores
+              // 4. Administradores
               ListTile(
                 leading: Icon(Icons.people, color: widget.paginaActual == 'Administradores' ? colorInstitucional : Colors.grey),
                 title: Text(
@@ -201,22 +234,16 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                 onTap: () => _navegarA(context, 'Administradores', const AdminsPage()), 
               ),
               
-              // 4. Lugares
+              // 5. Lugares
               ListTile(
                 leading: const Icon(Icons.place, color: Colors.grey),
                 title: const Text('Lugares'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.pushReplacement(
-                    context,
-                    TransicionElegante(page: const LugaresPage()),
-                  );
-                },
+                onTap: () => _navegarA(context, 'Lugares', const LugaresPage()),
               ),
               
               const Divider(),
               
-              // 5. Inventario
+              // 6. Inventario
               ListTile(
                 leading: Icon(Icons.inventory, color: widget.paginaActual == 'Inventario' ? colorInstitucional : Colors.grey),
                 title: Text(
@@ -233,16 +260,14 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
               
               const Divider(),
 
-              // =========================================================
-              // 6. CERRAR SESIÓN INTEGRADO (Elegante y en Línea)
-              // =========================================================
+              // 7. Cerrar Sesión
               ListTile(
                 leading: Icon(Icons.exit_to_app_rounded, color: Colors.red.shade700),
                 title: Text(
                   'Cerrar Sesión',
                   style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold),
                 ),
-                onTap: () => _ejecutarCerrarSesion(context), // Invoca el método con el contexto actual
+                onTap: () => _ejecutarCerrarSesion(context), 
               ),
               
               const SizedBox(height: 80),
@@ -250,7 +275,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
           ),
         ),
         
-        // Botón flotante gris inferior
+        // Botón flotante inferior de configuraciones
         Positioned(
           bottom: 20,
           right: 20,
@@ -281,6 +306,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
         bool esPantallaAncha = constraints.maxWidth > 800;
 
         return Scaffold(
+          key: _scaffoldKey, // <--- LLAVE CONECTADA AQUÍ PARA SEGURIDAD
           appBar: AppBar(
             backgroundColor: colorInstitucional,
             leadingWidth: 90,
@@ -302,7 +328,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
               Builder(
                 builder: (context) => IconButton(
                   icon: const Icon(Icons.menu, color: Colors.white, size: 28),
-                  onPressed: () => Scaffold.of(context).openEndDrawer(),
+                  onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
                 ),
               ),
               const SizedBox(width: 8),

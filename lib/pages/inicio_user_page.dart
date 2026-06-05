@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:http/http.dart' as http; // Librería para peticiones de red
-import 'dart:convert'; // Librería para codificar en JSON
+import 'package:http/http.dart' as http; 
+import 'dart:convert'; 
+import 'package:shared_preferences/shared_preferences.dart'; 
 import 'package:inventarioss/pages/principal_user_page.dart';
 import 'package:inventarioss/utils/transicion_elegante.dart'; 
+import 'package:inventarioss/api_config.dart';
 
 class Inicio_user_Page extends StatefulWidget {
   const Inicio_user_Page({Key? key}) : super(key: key);
@@ -22,16 +24,13 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
   final TextEditingController _correoController = TextEditingController();
   final TextEditingController _contrasenaController = TextEditingController();
 
-  // 🛠️ CORREGIDO: Forzamos que empiece en 0 (Estudiante) para evitar nulos por defecto
-  int? _ocupacionSeleccionada = 0;
+  // ✅ Estudiante inicializado en 0 de forma predeterminada (guarda int en vez de String)
+  int _ocupacionSeleccionada = 0;
 
   final Color navyBlue = const Color(0xFF0A3161);
   final Color elegantGray = const Color(0xFF6C757D);
   final Color backgroundWhite = const Color(0xFFF8F9FA);
 
-  // ==========================================
-  // CONFIGURACIÓN RÁPIDA DEL HEADER
-  // ==========================================
   final double _alturaLogo = 60.0;
   final double _espaciadoInferior = 15.0; 
   final double _espaciadoSuperior = 5.0; 
@@ -47,22 +46,18 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
   }
 
   // ==========================================
-  // LOGICA DE ENVÍO Y GENERACIÓN DE JSON 
+  // LÓGICA DE ENVÍO Y GENERACIÓN DE JSON 
   // ==========================================
   Future<void> _handleLogin() async {
     if (_formKey.currentState!.validate()) {
-      // 🛠️ RESPALDO SEGURO: Si por algún motivo volviera a quedar nulo, asegura un 0
-      int ocupacionId = _ocupacionSeleccionada ?? 0;
+      
+      // ✅ Ruta ajustada limpiamente con interpolación segura usando llaves
+      final url = Uri.parse('${ApiConfig.baseUrl}/api/solicitantes');
 
-      // IP Inteligente: Detecta si estás en Web (localhost) o Emulador (10.0.2.2)
-      final String baseUrl = kIsWeb ? 'localhost:3000' : '10.0.2.2:3000';
-      final url = Uri.parse('http://$baseUrl/api/solicitantes');
-
-      // Estructuración con la eñe en "contraseña" para que la reciba su backend de Node.js
       final Map<String, dynamic> requestBody = {
         "nombre": _nombreController.text.trim(),
         "apellidos": _apellidoController.text.trim(),
-        "ocupacion": ocupacionId,
+        "ocupacion": _ocupacionSeleccionada, // ✅ Modificado: Se envía el int (0 o 1) directo sin comillas ni .toString()
         "expediente_clave": _claveController.text.trim(),
         "correo": _correoController.text.trim(),
         "contraseña": _contrasenaController.text.trim(),
@@ -76,13 +71,48 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
         );
 
         if (response.statusCode == 201 || response.statusCode == 200) {
+          
+          int? idAsignado; 
+
+          // ========================================================
+          // 🔑 CAPTURA Y GUARDADO DEL ID EN MEMORIA LOCAL
+          // ========================================================
+          try {
+            final responseData = jsonDecode(response.body);
+            
+            // Mapeado exacto a la propiedad 'id_generado' que envía tu backend
+            idAsignado = responseData['id_generado'] ?? 
+                         responseData['id_solicitante'] ?? 
+                         responseData['insertId'] ?? 
+                         responseData['id'];
+
+            if (idAsignado != null) {
+              final prefs = await SharedPreferences.getInstance();
+              // Se guarda bajo la llave 'id_usuario' que es la que lee tu Principal_user_Page
+              await prefs.setInt('id_usuario', idAsignado);
+              
+              print('------------------------------------------------------------');
+              print('🛡️ ÉXITO: Sesión guardada localmente para id_usuario: $idAsignado');
+              print('------------------------------------------------------------');
+            } else {
+              print('⚠️ Advertencia: El backend no mandó un ID claro. Verifica la propiedad de respuesta.');
+            }
+          } catch (e) {
+            print('❌ Error procesando el JSON de respuesta para el ID: $e');
+          }
+          // ========================================================
+
+          if (!mounted) return;
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Row(
                 children: const [
                   Icon(Icons.check_circle, color: Colors.white),
                   SizedBox(width: 12),
-                  Text('Validación exitosa. Iniciando sesión...'),
+                  Expanded(
+                    child: Text('Validación exitosa. Iniciando sesión...'),
+                  ),
                 ],
               ),
               backgroundColor: navyBlue,
@@ -92,12 +122,21 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
             ),
           );
           
+          // ========================================================
+          // 🚀 NAVEGACIÓN LIMPIA Y COMPATIBLE
+          // ========================================================
           Future.delayed(const Duration(seconds: 1), () {
+            if (!mounted) return; 
+            
             Navigator.pushReplacement(
               context,
-              TransicionElegante(page: const Principal_user_Page()),
+              TransicionElegante(
+                page: const Principal_user_Page(), 
+              ),
             );
           });
+          // ========================================================
+
         } else {
           final responseData = jsonDecode(response.body);
           _mostrarErrorSnackBar(responseData['mensaje'] ?? 'Error en el servidor.');
@@ -108,7 +147,6 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
     }
   }
 
-  // Método auxiliar para mostrar alertas de error respetando la estética del SnackBar original
   void _mostrarErrorSnackBar(String mensaje) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -133,9 +171,7 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
       backgroundColor: backgroundWhite,
       body: Column(
         children: [
-          // ==========================================
-          // HEADER DINÁMICO
-          // ==========================================
+          // Header Dinámico
           Container(
             width: double.infinity,
             padding: EdgeInsets.only(
@@ -181,9 +217,7 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
             ),
           ),
 
-          // ==========================================
-          // CUERPO DEL FORMULARIO
-          // ==========================================
+          // Cuerpo del formulario
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 32.0),
@@ -245,30 +279,32 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
                     ),
                     const SizedBox(height: 24),
 
-                    // 🛠️ FILA CORREGIDA: Ocupación (Menú Desplegable con balance de flex) y Exp/Clave
+                    // Fila Ocupación y Exp/Clave
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
-                          flex: 6, // Más peso horizontal para que no se recorten las letras en web responsivo
+                          flex: 6, 
                           child: DropdownButtonFormField<int>(
                             isExpanded: true,
                             value: _ocupacionSeleccionada,
                             decoration: _buildInputDecoration('Ocupación', Icons.work_outline),
                             items: const [
-                              DropdownMenuItem(
-                                value: 0, 
+                              DropdownMenuItem<int>(
+                                value: 0, // Mapea directo a 0 en la BD
                                 child: Text('Estudiante', style: TextStyle(fontSize: 13)),
                               ),
-                              DropdownMenuItem(
-                                value: 1, 
+                              DropdownMenuItem<int>(
+                                value: 1, // Mapea directo a 1 en la BD
                                 child: Text('Docente', style: TextStyle(fontSize: 13)),
                               ),
                             ],
-                            onChanged: (value) {
-                              setState(() {
-                                _ocupacionSeleccionada = value;
-                              });
+                            onChanged: (int? newValue) {
+                              if (newValue != null) {
+                                setState(() {
+                                  _ocupacionSeleccionada = newValue;
+                                });
+                              }
                             },
                           ),
                         ),
@@ -284,7 +320,7 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
                             decoration: _buildInputDecoration('Exp/Clave', Icons.key_outlined).copyWith(counterText: ''),
                             validator: (value) {
                               if (value == null || value.trim().isEmpty) {
-                                return 'Ingrese clave.';
+                                  return 'Ingrese clave.';
                               }
                               return null;
                             },
@@ -303,7 +339,6 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
                         if (value == null || value.trim().isEmpty) {
                           return 'Por favor, ingrese su correo.';
                         }
-                        // Validación dual: Permite @alumnos.uaq.mx y @docente.uaq.mx
                         final emailRegex = RegExp(r'^[a-zA-Z0-9._%+-]+@(alumnos\.uaq\.mx|docente\.uaq\.mx)$');
                         if (!emailRegex.hasMatch(value.trim())) {
                           return 'Debe ser un correo de @alumnos o @docente .uaq.mx';
@@ -360,9 +395,6 @@ class _InicioUserPageState extends State<Inicio_user_Page> {
     );
   }
 
-  // ==========================================
-  // FUNCIÓN PARA EL ESTILO DE LOS CAMPOS
-  // ==========================================
   InputDecoration _buildInputDecoration(String labelText, IconData icon) {
     return InputDecoration(
       isDense: true, 

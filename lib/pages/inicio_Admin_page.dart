@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert'; 
 import 'package:inventarioss/utils/transicion_elegante.dart'; 
 import 'package:inventarioss/pages/principal_page.dart';
+// Importación de tu archivo ApiConfig
+import 'package:inventarioss/api_config.dart'; 
 
 class Inicio_Admin_Page extends StatefulWidget {
   const Inicio_Admin_Page({Key? key}) : super(key: key);
@@ -45,20 +47,18 @@ class _InicioAdminPageState extends State<Inicio_Admin_Page> {
   // ==========================================
   Future<void> _handleLogin() async {
     if (_formKey.currentState!.validate()) {
-      // Si estás en navegador usa localhost, si es emulador Android usa la IP especial
-      final String baseUrl = kIsWeb ? 'localhost:3000' : '10.0.2.2:3000';
       
-      // RUTA CORREGIDA: Apunta exactamente a tu endpoint de Express
-      final url = Uri.parse('http://$baseUrl/api/usuarios/registro'); 
+      // RUTA CORREGIDA: Apunta exactamente utilizando tu ApiConfig centralizado
+      final url = Uri.parse('${ApiConfig.baseUrl}/api/usuarios/registro'); 
 
-      // Cuerpo del JSON mapeado exactamente como lo pide tu destructuración en Node.js
+      // Cuerpo del JSON intacto, tal cual lo tenías originalmente
       final Map<String, dynamic> requestBody = {
         "nombre": _nombreController.text.trim(),
         "apellidos": _apellidoController.text.trim(),
         "correo": _correoController.text.trim(),
         "contrasena": _contrasenaController.text.trim(), // Sin eñe, tal cual tu backend
-        "tipo": 0,   // Operador por defecto
-        "status": 0, // Pendiente de aprobación por defecto
+        "tipo": 0,   // Operador por defecto (Intacto)
+        "status": 0, // Pendiente de aprobación por defecto (Intacto)
       };
 
       try {
@@ -241,7 +241,7 @@ class _InicioAdminPageState extends State<Inicio_Admin_Page> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Campo Exp/Clave (Opcional para flujo visual del usuario)
+                    // Campo Exp/Clave
                     TextFormField(
                       controller: _claveController,
                       keyboardType: TextInputType.number,

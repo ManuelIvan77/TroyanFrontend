@@ -1,34 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http; 
+import 'dart:convert'; 
 
-// =====================================================================
-// IMPORTACIONES PARA NAVEGACIÓN
-// =====================================================================
 import 'package:inventarioss/pages/principal_page.dart';
 import 'package:inventarioss/pages/solicitantes_page.dart';
 import 'package:inventarioss/pages/admins_page.dart';
 import 'package:inventarioss/pages/lugares_pages.dart';
 import 'package:inventarioss/utils/transicion_elegante.dart';
-import 'package:inventarioss/pages/tipousuario_page.dart'; // <--- IMPORTACIÓN PARA CERRAR SESIÓN
-
-void main() {
-  runApp(const InventarioPage());
-}
+import 'package:inventarioss/pages/tipousuario_page.dart'; 
+import 'package:inventarioss/api_config.dart'; 
 
 class InventarioPage extends StatelessWidget {
   const InventarioPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Inventario UAQ',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primaryColor: const Color(0xFF1A426E),
-        scaffoldBackgroundColor: Colors.white,
-        useMaterial3: true,
-      ),
-      home: const InventarioScreen(),
-    );
+    return const InventarioScreen();
   }
 }
 
@@ -39,37 +27,109 @@ class InventarioScreen extends StatefulWidget {
   State<InventarioScreen> createState() => _InventarioScreenState();
 }
 
-class _InventarioScreenState extends State<InventarioScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  String _opcionDesplegableSeleccionada = 'Configuración General';
+//class _OriginalScreenState extends State<InventarioScreen> {} // Mantenemos tu mixin intacto abajo
 
-  // Simulación de permisos
+class _InventarioScreenState extends State<InventarioScreen> with TickerProviderStateMixin {
+  TabController? _tabController; 
+  String _opcionDesplegableSeleccionada = 'Configuración General';
   String _estatusAdmin = 'espera'; 
 
-  // Datos de inventario
-  List<Map<String, dynamic>> _datosInventario = [
-    {'nSerie': '001', 'nombre': 'Cable Plug', 'descripcion': 'Cable', 'clave': '1231sfsa32', 'cantidad': 2, 'lBase': true, 'lugar': 'Caballo de Troya'},
-    {'nSerie': '002', 'nombre': 'Cable Auxiliar', 'descripcion': 'Cable', 'clave': '324e543', 'cantidad': 4, 'lBase': true, 'lugar': 'Caballo de Troya'},
-    {'nSerie': '003', 'nombre': 'Cable Auxiliar', 'descripcion': 'Cable', 'clave': '324ts3er', 'cantidad': 3, 'lBase': false, 'lugar': 'Caballo de Troya', 'lugarBaseReal': 'Oficina'},
-    {'nSerie': '004', 'nombre': 'Batería', 'descripcion': 'Bombo y mas', 'clave': 'Tstetelt3242', 'cantidad': 1, 'lBase': true, 'lugar': 'Caballo de Troya'},
-    {'nSerie': '011', 'nombre': 'Laptop Dell', 'descripcion': 'Equipo de cómputo', 'clave': 'LAP7723', 'cantidad': 5, 'lBase': true, 'lugar': 'Oficina'},
-    {'nSerie': '012', 'nombre': 'Impresora HP', 'descripcion': 'Inyección de tinta', 'clave': 'IMP9901', 'cantidad': 1, 'lBase': false, 'lugar': 'Oficina', 'lugarBaseReal': 'Bodega'},
-    {'nSerie': '013', 'nombre': 'Proyector Epson', 'descripcion': 'Multimedia', 'clave': 'PROY442', 'cantidad': 2, 'lBase': true, 'lugar': 'Bodega'},
-  ];
+  List<Map<String, dynamic>> _datosLugares = [];
+  List<Map<String, dynamic>> _datosInventario = [];
+  bool _cargandoInventario = true;
+  bool _cargandoLugares = true;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-    _tabController.addListener(() {
-      if (mounted) setState(() {});
-    });
+    _initCargaInicial();
+  }
+
+  Future<void> _initCargaInicial() async {
+    await Future.wait([
+      _obtenerLugaresDeServidor(),
+      _obtenerInventarioDeServidor(),
+    ]);
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _tabController?.dispose();
     super.dispose();
+  }
+  
+  Future<void> _obtenerLugaresDeServidor() async {
+    final url = Uri.parse('${ApiConfig.baseUrl}/api/lugares'); 
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonResponse = jsonDecode(response.body);
+        if (jsonResponse['error'] == false) {
+          final List<dynamic> datosRaw = jsonResponse['datos'] ?? [];
+          if (!mounted) return;
+          setState(() {
+            _datosLugares = List<Map<String, dynamic>>.from(datosRaw);
+            _cargandoLugares = false;
+            if (_datosLugares.isNotEmpty) {
+              _tabController?.dispose();
+              _tabController = TabController(length: _datosLugares.length, vsync: this);
+            }
+          });
+        }
+      } else {
+        if (mounted) setState(() => _cargandoLugares = false);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _cargandoLugares = false);
+      _mostrarMensajeError('Error al conectar con Azure para cargar lugares.');
+    }
+  }
+
+  Future<void> _obtenerInventarioDeServidor({bool esSilencioso = false}) async {
+    if (!esSilencioso) {
+      setState(() => _cargandoInventario = true);
+    }
+    final url = Uri.parse('${ApiConfig.baseUrl}/api/articulos'); 
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonResponse = jsonDecode(response.body);
+        if (jsonResponse['error'] == false) {
+          final List<dynamic> datosRaw = jsonResponse['datos'] ?? [];
+          if (!mounted) return;
+          setState(() {
+            _datosInventario = datosRaw.map((item) {
+              final int lugarBaseId = item['lugar_base'] ?? 0;
+              final int? ubicacionId = item['ubicacion']; 
+              String lugarDestinoActual = item['nombre_ubicacion_actual'] ?? item['nombre_lugar_base'] ?? 'Aún no hay valor atribuido';
+              bool estaEnSuBase = (ubicacionId == null || ubicacionId == 0 || lugarBaseId == ubicacionId);
+
+              return {
+                'nSerie': (item['id_articulo'] ?? '').toString(), 
+                'nombre': item['nombre'] ?? 'Aún no hay valor atribuido',
+                'descripcion': item['descripcion'] ?? 'Aún no hay valor atribuido',
+                'clave': item['clave'] ?? 'Aún no hay valor atribuido',
+                'cantidad': 1, 
+                'lugar': lugarDestinoActual,
+                'lBase': estaEnSuBase, 
+                'lugarBaseReal': item['nombre_lugar_base'] ?? 'Aún no hay valor atribuido'
+              };
+            }).toList();
+            _cargandoInventario = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() => _cargandoInventario = false);
+      _mostrarMensajeError('Error al conectar con Azure para cargar artículos.');
+    }
+  }
+
+  void _mostrarMensajeError(String mensaje) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(mensaje), backgroundColor: Colors.redAccent)
+    );
   }
 
   List<Map<String, dynamic>> _filtrarDatos(String lugar) {
@@ -78,7 +138,6 @@ class _InventarioScreenState extends State<InventarioScreen> with SingleTickerPr
 
   String _generarNuevoNumeroSerie() {
     if (_datosInventario.isEmpty) return '001';
-    
     int maxSerie = 0;
     for (var item in _datosInventario) {
       String numStr = item['nSerie'].toString().replaceAll(RegExp(r'[^0-9]'), '');
@@ -119,7 +178,6 @@ class _InventarioScreenState extends State<InventarioScreen> with SingleTickerPr
               onPressed: () {
                 setState(() => _estatusAdmin = 'aprobado');
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Simulación: Estatus cambiado a Aprobado')));
               },
               child: const Text('Simular Aprobación'),
             ),
@@ -130,447 +188,82 @@ class _InventarioScreenState extends State<InventarioScreen> with SingleTickerPr
   }
 
   void _mostrarFormularioInventario() {
-    final formKey = GlobalKey<FormState>();
-    
-    TextEditingController nombreCtrl = TextEditingController();
-    TextEditingController descCtrl = TextEditingController();
-    TextEditingController claveCtrl = TextEditingController();
-    TextEditingController cantCtrl = TextEditingController(text: '1');
-    
-    bool lBase = true;
-    String lugarSeleccionado = 'Caballo de Troya';
-    String lugarBaseRealSeleccionado = 'Oficina'; 
+    if (_datosLugares.isEmpty) {
+      _mostrarMensajeError('No se pueden agregar artículos porque no hay lugares cargados.');
+      return;
+    }
     String nuevoNumeroSerie = _generarNuevoNumeroSerie();
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (BuildContext context, StateSetter setModalState) {
-            return Container(
-              height: MediaQuery.of(context).size.height * 0.85, 
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom,
-                left: 24, right: 24, top: 24,
-              ),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: SingleChildScrollView(
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Agregar al Inventario', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A426E))),
-                          IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 1,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade200,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: Colors.grey.shade300),
-                              ),
-                              child: Column(
-                                children: [
-                                  const Text('N. Serie', style: TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
-                                  Text(
-                                    nuevoNumeroSerie,
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            flex: 2,
-                            child: TextFormField(
-                              controller: nombreCtrl,
-                              decoration: InputDecoration(labelText: 'Nombre del equipo', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))),
-                              validator: (v) => v!.isEmpty ? 'Requerido' : null,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      
-                      TextFormField(
-                        controller: descCtrl,
-                        decoration: InputDecoration(labelText: 'Descripción', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))),
-                        validator: (v) => v!.isEmpty ? 'Requerido' : null,
-                      ),
-                      const SizedBox(height: 16),
-
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 2,
-                            child: TextFormField(
-                              controller: claveCtrl,
-                              decoration: InputDecoration(labelText: 'Clave', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))),
-                              validator: (v) => v!.isEmpty ? 'Requerido' : null,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            flex: 1,
-                            child: TextFormField(
-                              controller: cantCtrl,
-                              keyboardType: TextInputType.number,
-                              decoration: InputDecoration(labelText: 'Cant.', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))),
-                              validator: (v) => v!.isEmpty ? 'Req.' : null,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      DropdownButtonFormField<String>(
-                        value: lugarSeleccionado,
-                        decoration: InputDecoration(labelText: 'Lugar de destino actual', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10))),
-                        items: ['Caballo de Troya', 'Oficina', 'Bodega'].map((String val) => DropdownMenuItem(value: val, child: Text(val))).toList(),
-                        onChanged: (val) => setModalState(() => lugarSeleccionado = val!),
-                      ),
-                      const SizedBox(height: 16),
-
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade400), borderRadius: BorderRadius.circular(10)),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text('¿Está en su lugar base?', style: TextStyle(fontSize: 16)),
-                                Switch(
-                                  value: lBase,
-                                  activeColor: Colors.green,
-                                  onChanged: (val) => setModalState(() => lBase = val),
-                                ),
-                              ],
-                            ),
-                            
-                            if (!lBase) ...[
-                              const Divider(),
-                              const SizedBox(height: 8),
-                              DropdownButtonFormField<String>(
-                                value: lugarBaseRealSeleccionado,
-                                decoration: const InputDecoration(
-                                  labelText: 'Especifique su lugar base real', 
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
-                                items: ['Caballo de Troya', 'Oficina', 'Bodega'].map((String val) => DropdownMenuItem(value: val, child: Text(val))).toList(),
-                                onChanged: (val) => setModalState(() => lugarBaseRealSeleccionado = val!),
-                              ),
-                              const SizedBox(height: 8),
-                            ]
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1A426E),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        onPressed: () {
-                          if (formKey.currentState!.validate()) {
-                            setState(() {
-                              _datosInventario.add({
-                                'nSerie': nuevoNumeroSerie, 
-                                'nombre': nombreCtrl.text,
-                                'descripcion': descCtrl.text,
-                                'clave': claveCtrl.text,
-                                'cantidad': int.tryParse(cantCtrl.text) ?? 1,
-                                'lBase': lBase,
-                                'lugar': lugarSeleccionado,
-                                'lugarBaseReal': lBase ? lugarSeleccionado : lugarBaseRealSeleccionado, 
-                              });
-                            });
-                            
-                            Navigator.pop(context); 
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Artículo agregado al inventario'), backgroundColor: Colors.green));
-                          }
-                        },
-                        child: const Text('Guardar Artículo', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      ),
-                      const SizedBox(height: 24),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
+        return FormularioInventarioModal(
+          datosLugares: _datosLugares,
+          nuevoNumeroSerie: nuevoNumeroSerie,
+          onGuardadoExitoso: () => _obtenerInventarioDeServidor(esSilencioso: true),
+          onError: (msg) => _mostrarMensajeError(msg),
         );
       },
     );
   }
 
-  void _alPresionarAgregar() {
-    if (_estatusAdmin == 'espera') {
-      _mostrarPantallaEspera();
-    } else {
-      _mostrarFormularioInventario();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final Color colorInstitucional = const Color(0xFF1A426E);
+    const Color colorInstitucional = Color(0xFF1A426E);
+
+    if (_cargandoInventario || _cargandoLugares || _tabController == null) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator(color: colorInstitucional)),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
         backgroundColor: colorInstitucional,
         iconTheme: const IconThemeData(color: Colors.white),
-        leadingWidth: 90, 
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 16.0),
-          child: Image.asset(
-            'assets/uaqlogo.png',
-            height: 45, 
-            fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) => const Icon(Icons.school, color: Colors.white, size: 30),
-          ),
-        ),
-        title: const Text('Inventarios', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.0)),
+        title: const Text('Inventarios', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         centerTitle: true,
         actions: [
-          Builder(
-            builder: (context) => IconButton(icon: const Icon(Icons.menu, size: 28), onPressed: () => Scaffold.of(context).openEndDrawer()),
-          ),
-          const SizedBox(width: 8), 
+          Builder(builder: (context) => IconButton(icon: const Icon(Icons.menu), onPressed: () => Scaffold.of(context).openEndDrawer())),
         ],
       ),
       endDrawer: Drawer(
-        child: Stack(
+        child: Column(
           children: [
-            Column(
-              children: [
-                DrawerHeader(
-                  decoration: BoxDecoration(color: colorInstitucional),
-                  child: Center(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Image.asset('assets/uaqlogo.png', height: 65, fit: BoxFit.contain, errorBuilder: (context, error, stackTrace) => const Icon(Icons.school, color: Colors.white, size: 40)),
-                        const SizedBox(width: 15), 
-                        Image.asset('assets/logoapp.png', height: 75, fit: BoxFit.contain, errorBuilder: (context, error, stackTrace) => const Icon(Icons.apps, color: Colors.white, size: 40)),
-                      ],
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                  child: DropdownButtonFormField<String>(
-                    value: _opcionDesplegableSeleccionada,
-                    decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 5), border: OutlineInputBorder()),
-                    items: <String>['Configuración General', 'Cambiar Campus', 'Reportes Anuales'].map<DropdownMenuItem<String>>((String value) {
-                      return DropdownMenuItem<String>(value: value, child: Text(value, style: const TextStyle(fontSize: 14)));
-                    }).toList(),
-                    onChanged: (String? newValue) => setState(() => _opcionDesplegableSeleccionada = newValue!),
-                  ),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.home),
-                  title: const Text('Página principal'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.pushReplacement(context, TransicionElegante(page: const PrincipalPage()));
-                  }, 
-                ),
-                ListTile(
-                  leading: const Icon(Icons.people),
-                  title: const Text('Solicitantes'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.pushReplacement(context, TransicionElegante(page: const SolicitantesPage()));
-                  }, 
-                ),
-                ListTile(
-                  leading: const Icon(Icons.people),
-                  title: const Text('Administradores'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.pushReplacement(context, TransicionElegante(page: const AdminsPage()));
-                  }, 
-                ),
-                ListTile(
-                  leading: const Icon(Icons.place),
-                  title: const Text('Lugares'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.pushReplacement(context, TransicionElegante(page: const LugaresPage()));
-                  }, 
-                ),
-                const Divider(),
-                ListTile(
-                  leading: Icon(Icons.inventory, color: colorInstitucional),
-                  title: Text('Inventario', style: TextStyle(color: colorInstitucional, fontWeight: FontWeight.bold)),
-                  selected: true,
-                  selectedTileColor: colorInstitucional.withOpacity(0.15),
-                  onTap: () => Navigator.pop(context), 
-                ),
-                const Divider(),
-                
-                // =========================================================
-                // LISTTILE DE CERRAR SESIÓN (CON CONFIRMACIÓN Y RETRASO)
-                // =========================================================
-                ListTile(
-                  leading: Icon(Icons.exit_to_app_rounded, color: Colors.red.shade700),
-                  title: Text(
-                    'Cerrar Sesión',
-                    style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold),
-                  ),
-                  onTap: () async {
-                    bool? confirmar = await showDialog<bool>(
-                      context: context,
-                      builder: (context) {
-                        return AlertDialog(
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15.0)),
-                          title: const Row(
-                            children: [
-                              Icon(Icons.logout, color: Colors.red),
-                              SizedBox(width: 10),
-                              Text('Cerrar Sesión'),
-                            ],
-                          ),
-                          content: const Text('¿Estás seguro de que deseas salir de tu cuenta?'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context, false), 
-                              child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
-                            ),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red.shade700,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
-                              onPressed: () => Navigator.pop(context, true), 
-                              child: const Text('Sí, salir'),
-                            ),
-                          ],
-                        );
-                      },
-                    );
-
-                    if (confirmar != true) return;
-
-                    if (!context.mounted) return;
-                    Navigator.pop(context); // Cierra el menú lateral
-
-                    showDialog(
-                      context: context,
-                      barrierDismissible: false,
-                      builder: (context) {
-                        return const AlertDialog(
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(15.0))),
-                          content: Padding(
-                            padding: EdgeInsets.all(8.0),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                CircularProgressIndicator(color: Color(0xFF1A426E)),
-                                SizedBox(width: 20),
-                                Text('Cerrando sesión...', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-                    );
-
-                    await Future.delayed(const Duration(seconds: 3));
-
-                    if (!context.mounted) return;
-
-                    Navigator.pop(context); // Remueve el diálogo de carga
-
-                    Navigator.pushReplacement(
-                      context,
-                      TransicionElegante(page: const TipousuarioPage()),
-                    );
-                  },
-                ),
-              ],
+            DrawerHeader(
+              decoration: const BoxDecoration(color: colorInstitucional),
+              child: const Center(child: Icon(Icons.school, color: Colors.white, size: 40)),
             ),
-            Positioned(
-              bottom: 20.0,
-              right: 20.0,
-              child: FloatingActionButton(
-                heroTag: null,
-                backgroundColor: Colors.grey.shade600,
-                foregroundColor: Colors.white,
-                elevation: 3,
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Abriendo configuraciones...'), behavior: SnackBarBehavior.floating));
-                },
-                child: const Icon(Icons.settings),
-              ),
+            ListTile(
+              leading: const Icon(Icons.inventory, color: colorInstitucional),
+              title: const Text('Inventario', style: TextStyle(color: colorInstitucional, fontWeight: FontWeight.bold)),
+              onTap: () => Navigator.pop(context), 
             ),
           ],
         ),
       ),
       body: Column(
         children: [
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 8.0),
-            child: TabBar(
-              controller: _tabController,
-              indicatorColor: colorInstitucional,
-              indicatorSize: TabBarIndicatorSize.label,
-              labelColor: Colors.black,
-              unselectedLabelColor: Colors.grey,
-              labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              tabs: const [
-                Tab(text: 'Caballo de Troya'),
-                Tab(text: 'Oficina'),
-                Tab(text: 'Bodega'),
-              ],
-            ),
+          TabBar(
+            controller: _tabController,
+            indicatorColor: colorInstitucional,
+            labelColor: Colors.black,
+            isScrollable: true,
+            tabs: _datosLugares.map((lugar) => Tab(text: lugar['nombre'] ?? 'Sin nombre')).toList(), 
           ),
           Expanded(
-            child: Container(
-              color: const Color(0xFFE5E5E5),
-              padding: const EdgeInsets.all(12.0),
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildTablaInventario(_filtrarDatos('Caballo de Troya')),
-                  _buildTablaInventario(_filtrarDatos('Oficina')),
-                  _buildTablaInventario(_filtrarDatos('Bodega')),
-                ],
-              ),
+            child: TabBarView(
+              controller: _tabController,
+              children: _datosLugares.map((lugar) => _buildTablaInventario(_filtrarDatos(lugar['nombre'] ?? ''))).toList(), 
             ),
           ),
         ],
       ),
-      
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: colorInstitucional,
         foregroundColor: Colors.white,
-        onPressed: _alPresionarAgregar,
+        onPressed: () => _estatusAdmin == 'espera' ? _mostrarPantallaEspera() : _mostrarFormularioInventario(),
         icon: const Icon(Icons.add),
         label: const Text('Agregar'),
       ),
@@ -578,82 +271,192 @@ class _InventarioScreenState extends State<InventarioScreen> with SingleTickerPr
   }
 
   Widget _buildTablaInventario(List<Map<String, dynamic>> items) {
-    if (items.isEmpty) {
-      return const Center(child: Text('No hay registros en esta ubicación.'));
-    }
-
+    if (items.isEmpty) return const Center(child: Text('No hay registros en esta ubicación.'));
     return SingleChildScrollView(
       scrollDirection: Axis.vertical,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFFD3D3D3),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: DataTable(
-            headingRowColor: WidgetStateProperty.all(const Color(0xFFC0C0C0)),
-            dataRowMinHeight: 38,
-            dataRowMaxHeight: 45,
-            horizontalMargin: 12,
-            columnSpacing: 24,
-            columns: const [
-              DataColumn(label: Text('N.Serie', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87))),
-              DataColumn(label: Text('Nombre', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87))),
-              DataColumn(label: Text('Descripcion', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87))),
-              DataColumn(label: Text('Clave', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87))),
-              DataColumn(label: Text('Cantidad', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87))),
-              DataColumn(label: Text('L. Base', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87))),
+        child: DataTable(
+          columns: const [
+            DataColumn(label: Text('N.Serie')),
+            DataColumn(label: Text('Nombre')),
+            DataColumn(label: Text('Descripcion')),
+            DataColumn(label: Text('Clave')),
+            DataColumn(label: Text('L.base')), // 👈 NUEVA COLUMNA AGREGADA
+          ],
+          rows: items.map((item) {
+            final bool estaEnSuBase = item['lBase'] ?? false; // Lee tu booleano del GET
+
+            return DataRow(cells: [
+              DataCell(Text(item['nSerie'])),
+              DataCell(Text(item['nombre'])),
+              DataCell(Text(item['descripcion'])),
+              DataCell(Text(item['clave'])),
+              DataCell(
+                Center(
+                  child: Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: estaEnSuBase ? Colors.green : Colors.red, // 👈 Verde si coincide, rojo si no
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+              ),
+            ]);
+          }).toList(),
+        ),
+      ),
+    );
+  }
+}
+
+// =====================================================================
+// 🛠️ COMPONENTE AUXILIAR FORMULARIO MODAL
+// =====================================================================
+class FormularioInventarioModal extends StatefulWidget {
+  final List<Map<String, dynamic>> datosLugares;
+  final String nuevoNumeroSerie;
+  final VoidCallback onGuardadoExitoso;
+  final Function(String) onError;
+
+  const FormularioInventarioModal({
+    super.key,
+    required this.datosLugares,
+    required this.nuevoNumeroSerie,
+    required this.onGuardadoExitoso,
+    required this.onError,
+  });
+
+  @override
+  State<FormularioInventarioModal> createState() => _FormularioInventarioModalState();
+}
+
+class _FormularioInventarioModalState extends State<FormularioInventarioModal> {
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController _nombreCtrl, _descCtrl, _claveCtrl;
+  bool _lBase = true;
+  late Map<String, dynamic> _lugarActualSeleccionado, _lugarBaseSeleccionado;
+
+  @override
+  void initState() {
+    super.initState();
+    _nombreCtrl = TextEditingController();
+    _descCtrl = TextEditingController();
+    _claveCtrl = TextEditingController();
+    _lugarActualSeleccionado = widget.datosLugares.first;
+    _lugarBaseSeleccionado = widget.datosLugares.length > 1 ? widget.datosLugares[1] : widget.datosLugares.first;
+  }
+
+  @override
+  void dispose() {
+    _nombreCtrl.dispose();
+    _descCtrl.dispose();
+    _claveCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85, 
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 24),
+      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      child: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextFormField(
+                controller: _nombreCtrl,
+                decoration: const InputDecoration(labelText: 'Nombre del equipo'),
+                validator: (v) => v!.isEmpty ? 'Requerido' : null,
+              ),
+              TextFormField(
+                controller: _descCtrl,
+                decoration: const InputDecoration(labelText: 'Descripción'),
+                validator: (v) => v!.isEmpty ? 'Requerido' : null,
+              ),
+              TextFormField(
+                controller: _claveCtrl,
+                decoration: const InputDecoration(labelText: 'Clave'),
+                validator: (v) => v!.isEmpty ? 'Requerido' : null,
+              ),
+              DropdownButtonFormField<Map<String, dynamic>>(
+                value: _lugarActualSeleccionado,
+                items: widget.datosLugares.map((l) => DropdownMenuItem(value: l, child: Text(l['nombre'] ?? ''))).toList(),
+                onChanged: (val) => setState(() => _lugarActualSeleccionado = val!),
+              ),
+              SwitchListTile(
+                title: const Text('¿Está en su lugar base?'),
+                value: _lBase,
+                onChanged: (val) => setState(() => _lBase = val),
+              ),
+              if (!_lBase)
+                DropdownButtonFormField<Map<String, dynamic>>(
+                  value: _lugarBaseSeleccionado,
+                  items: widget.datosLugares.map((l) => DropdownMenuItem(value: l, child: Text(l['nombre'] ?? ''))).toList(),
+                  onChanged: (val) => setState(() => _lugarBaseSeleccionado = val!),
+                ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () async {
+                  if (_formKey.currentState!.validate()) {
+                    int idUbicacionActual = _lugarActualSeleccionado['id_lugar'];
+                    int idLugarBase = _lBase ? idUbicacionActual : _lugarBaseSeleccionado['id_lugar'];
+
+                    // MAPEO DIRECTO CON LAS VARIABLES DE TU BACKEND (DESESTRUCTURADAS)
+                    final Map<String, dynamic> bodyPost = {
+                      "nombre": _nombreCtrl.text.trim(),
+                      "tipo": 0, // Por default en 0 (entero)
+                      "clave": _claveCtrl.text.trim(),
+                      "resguardante": 2, // ID numérico
+                      "lugar_base": idLugarBase,         
+                      "ubicacion": idUbicacionActual,    
+                      "folio_resguardo": "FOL-2026-${widget.nuevoNumeroSerie}",
+                      "descripcion": _descCtrl.text.trim(),
+                      "imagen_url": null 
+                    };
+
+                    print("🚀 JSON ENVIADO AL BACKEND: ${jsonEncode(bodyPost)}");
+                    showDialog(context: context, builder: (context) => const Center(child: CircularProgressIndicator()));
+
+                    try {
+                      final url = Uri.parse('${ApiConfig.baseUrl}/api/articulos');
+                      final response = await http.post(url, headers: {"Content-Type": "application/json"}, body: jsonEncode(bodyPost));
+                      if (context.mounted) Navigator.pop(context);
+
+                      if (response.statusCode == 200 || response.statusCode == 201) {
+                        if (context.mounted) Navigator.pop(context);
+                        widget.onGuardadoExitoso();
+                      } else {
+                        final datos =jsonDecode(response.body);
+                        widget.onError('Error de servidor (${response.statusCode}) ${datos}');
+                      }
+                    } catch (e) {
+                      if (context.mounted) Navigator.pop(context);
+                      final datos =jsonEncode(bodyPost);
+                      widget.onError('No se pudo conectar con el servidor. ${datos}');
+                    }
+                  }
+                },
+                child: const Text('Guardar Artículo'),
+              ),
             ],
-            rows: items.map((item) {
-              return DataRow(
-                cells: [
-                  DataCell(
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: const BoxDecoration(color: Color(0xFF666666)),
-                      child: Text(
-                        item['nSerie'],
-                        style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic),
-                      ),
-                    ),
-                  ),
-                  DataCell(Text(item['nombre'])),
-                  DataCell(Text(item['descripcion'])),
-                  DataCell(Text(item['clave'])),
-                  DataCell(Text(item['cantidad'].toString(), textAlign: TextAlign.center)),
-                  
-                  DataCell(
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 16,
-                          height: 16,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: item['lBase'] ? Colors.greenAccent[700] : Colors.redAccent[700],
-                            boxShadow: [
-                              BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 2, offset: const Offset(0, 1))
-                            ],
-                          ),
-                        ),
-                        if (!item['lBase']) ...[
-                          const SizedBox(width: 8),
-                          Text(
-                            item['lugarBaseReal'] ?? 'Desconocido', 
-                            style: TextStyle(color: Colors.redAccent[700], fontSize: 12, fontWeight: FontWeight.bold),
-                          ),
-                        ]
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            }).toList(),
           ),
         ),
       ),
     );
+  }
+}
+
+class WidgetFactorySerie extends StatelessWidget {
+  final String nuevoNumeroSerie;
+  const WidgetFactorySerie({super.key, required this.nuevoNumeroSerie});
+  @override
+  Widget build(BuildContext context) {
+    return Text(nuevoNumeroSerie);
   }
 }
